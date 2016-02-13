@@ -84,7 +84,8 @@ class ActionAliasExecutionController(rest.RestController):
             'user': get_requester(),
             'source_channel': payload.source_channel
         }
-        if context['source_channel'].split('@')[0] in action_alias_db.channels:
+        if (not action_alias_db.channels or
+            context['source_channel'].split('@')[0] in action_alias_db.channels):
             execution = self._schedule_execution(action_alias_db=action_alias_db,
                                                  params=execution_parameters,
                                                  notify=notify,
