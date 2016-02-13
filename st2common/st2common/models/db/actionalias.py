@@ -59,6 +59,8 @@ class ActionAliasDB(stormbase.StormBaseDB, stormbase.ContentPackResourceMixin,
         help_text='Reference of the Action map this alias.')
     formats = me.ListField(
         help_text='Possible parameter formats that an alias supports.')
+    channels = me.ListField(
+        help_text='Allowed channels.')
     ack = me.DictField(
         help_text='Parameters pertaining to the acknowledgement message.'
     )

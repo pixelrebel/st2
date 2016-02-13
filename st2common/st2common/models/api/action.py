@@ -499,6 +499,12 @@ class ActionAliasAPI(BaseAPI, APIUIDMixin):
                 "description": "Reference to the aliased action.",
                 "required": True
             },
+            "channels": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Allowed channels.",
+                "required": False
+            },
             "formats": {
                 "type": "array",
                 "items": {
@@ -548,11 +554,12 @@ class ActionAliasAPI(BaseAPI, APIUIDMixin):
         enabled = getattr(alias, 'enabled', True)
         action_ref = alias.action_ref
         formats = alias.formats
+        channels = getattr(alias, 'channels', None)
         ack = getattr(alias, 'ack', None)
         result = getattr(alias, 'result', None)
 
         model = cls.model(name=name, description=description, pack=pack, ref=ref, enabled=enabled,
-                          action_ref=action_ref, formats=formats, ack=ack, result=result)
+                          action_ref=action_ref, formats=formats, channels=channels, ack=ack, result=result)
         return model
 
 

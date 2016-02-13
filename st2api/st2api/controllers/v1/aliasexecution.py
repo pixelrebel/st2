@@ -84,22 +84,27 @@ class ActionAliasExecutionController(rest.RestController):
             'user': get_requester(),
             'source_channel': payload.source_channel
         }
+        if context['source_channel'].split('@')[0] in action_alias_db.channels:
+            execution = self._schedule_execution(action_alias_db=action_alias_db,
+                                                 params=execution_parameters,
+                                                 notify=notify,
+                                                 context=context)
 
-        execution = self._schedule_execution(action_alias_db=action_alias_db,
-                                             params=execution_parameters,
-                                             notify=notify,
-                                             context=context)
+            result = {
+                'execution': execution,
+                'actionalias': ActionAliasAPI.from_model(action_alias_db)
+            }
 
-        result = {
-            'execution': execution,
-            'actionalias': ActionAliasAPI.from_model(action_alias_db)
-        }
-
-        if action_alias_db.ack and 'format' in action_alias_db.ack:
-            result.update({
-                'message': render({'alias': action_alias_db.ack['format']}, result)['alias']
-            })
-
+            if action_alias_db.ack and 'format' in action_alias_db.ack:
+                result.update({
+                    'message': render({'alias': action_alias_db.ack['format']}, result)['alias']
+                })
+        else:
+            result = {
+                'execution': "junk",
+                'actionalias': ActionAliasAPI.from_model(action_alias_db),
+                'message': "Sorry, I'm not allowed execute this command in this channel."
+            }
         return result
 
     def _tokenize_alias_execution(self, alias_execution):
