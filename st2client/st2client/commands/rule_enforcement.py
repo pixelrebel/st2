@@ -16,7 +16,7 @@
 from st2client import models
 from st2client.commands import resource
 from st2client.formatters import table
-from st2client.utils.date import format_isodate
+from st2client.utils.date import format_isodate_for_user_timezone
 
 
 class RuleEnforcementBranch(resource.ResourceBranch):
@@ -32,10 +32,10 @@ class RuleEnforcementBranch(resource.ResourceBranch):
 
 
 class RuleEnforcementGetCommand(resource.ResourceGetCommand):
-    display_attributes = ['id', 'rule_ref', 'trigger_instance_id',
-                          'execution_id', 'enforced_at']
-    attribute_display_order = ['id', 'rule_ref', 'trigger_instance_id',
-                               'execution_id', 'enforced_at']
+    display_attributes = ['id', 'rule.ref', 'trigger_instance_id',
+                          'execution_id', 'failure_reason', 'enforced_at']
+    attribute_display_order = ['id', 'rule.ref', 'trigger_instance_id',
+                               'execution_id', 'failure_reason', 'enforced_at']
 
     pk_argument_name = 'id'
 
@@ -52,7 +52,7 @@ class RuleEnforcementListCommand(resource.ResourceCommand):
                                'execution_id', 'enforced_at']
 
     attribute_transform_functions = {
-        'enforced_at': format_isodate
+        'enforced_at': format_isodate_for_user_timezone
     }
 
     def __init__(self, resource, *args, **kwargs):

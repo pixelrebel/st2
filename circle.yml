@@ -1,9 +1,6 @@
 # Setup in CircleCI account the following ENV variables:
 # IS_PRODUCTION (default: 0)
 # IS_ENTERPRISE (default: 0)
-# BINTRAY_ORGANIZATION (default: stackstorm)
-# BINTRAY_ACCOUNT
-# BINTRAY_API_KEY
 # PACKAGECLOUD_ORGANIZATION (default: stackstorm)
 # PACKAGECLOUD_TOKEN
 # DOCKER_USER
@@ -19,14 +16,19 @@ general:
   artifacts:
     - ~/packages
 
+notify:
+  webhooks:
+    - url: https://webhooks.stackstorm.net:8531/webhooks/build/events
+
 machine:
   environment:
     DISTROS: "wheezy jessie trusty el6 el7"
     NOTESTS: "el7"
     ST2_PACKAGES_REPO: https://github.com/StackStorm/st2-packages
     ST2_DOCKERFILES_REPO: https://github.com/StackStorm/st2-dockerfiles
-    BUILD_DOCKER: 1
-    DEPLOY_DOCKER: 1
+    ST2_PACKAGES: "st2"
+    BUILD_DOCKER: 0
+    DEPLOY_DOCKER: 0
     DEPLOY_PACKAGES: 1
   pre:
     - mkdir -p ~/packages
@@ -42,8 +44,11 @@ machine:
 
 checkout:
   post:
-    - git clone --depth 1 ${ST2_PACKAGES_REPO} /home/ubuntu/st2/st2-packages
-    - .circle/buildenv.sh
+    - |
+      git clone --depth 1 ${ST2_PACKAGES_REPO} /home/ubuntu/st2/st2-packages
+      cd /home/ubuntu/st2/st2-packages
+      git checkout ${CIRCLE_BRANCH} || true
+    - .circle/buildenv_st2.sh
 
 dependencies:
   cache_directories:
@@ -81,10 +86,6 @@ deployment:
       - master
       - /v[0-9]+\.[0-9]+/
     commands:
-      # Deploy to Bintray all artifacts for respective distros in parallel
-      - |
-        DISTROS=($DISTROS)
-        parallel -v -j0 --line-buffer .circle/bintray.sh deploy {}_staging ~/packages/{} ::: ${DISTROS[@]::$CIRCLE_NODE_TOTAL}
       # Deploy to PackageCloud all artifacts for respective distros in parallel
       - |
         DISTROS=($DISTROS)

@@ -61,6 +61,8 @@ class RuleFilter(object):
                  extra=self._base_logger_context)
 
         if not self.rule.enabled:
+            if self.extra_info:
+                LOG.info('Validation failed for rule %s as it is disabled.', self.rule.ref)
             return False
 
         criteria = self.rule.criteria
@@ -137,7 +139,9 @@ class RuleFilter(object):
         return result, payload_value, criteria_pattern
 
     def _render_criteria_pattern(self, criteria_pattern):
-        if not criteria_pattern:
+        # Note: Here we want to use strict comparison to None to make sure that
+        # other falsy values such as integer 0 are handled correctly.
+        if criteria_pattern is None:
             return None
 
         if not isinstance(criteria_pattern, six.string_types):

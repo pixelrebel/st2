@@ -46,10 +46,13 @@ import st2common.models.db.executionstate as executionstate_model
 import st2common.models.db.liveaction as liveaction_model
 import st2common.models.db.actionalias as actionalias_model
 import st2common.models.db.policy as policy_model
+from st2actions.runners.utils import get_action_class_instance
 
 import st2tests.config
 from st2tests.mocks.sensor import MockSensorWrapper
 from st2tests.mocks.sensor import MockSensorService
+from st2tests.mocks.action import MockActionWrapper
+from st2tests.mocks.action import MockActionService
 
 
 __all__ = [
@@ -91,6 +94,7 @@ class BaseTestCase(TestCase):
         """
         Register all the packs inside the fixtures directory.
         """
+
         registrar = ResourceRegistrar(use_pack_cache=False)
         registrar.register_packs(base_dirs=get_packs_base_paths())
 
@@ -485,10 +489,27 @@ class BaseSensorTestCase(TestCase):
 
 class BaseActionTestCase(TestCase):
     """
-    Base class for action tests.
+    Base class for Python runner action tests.
     """
 
     action_cls = None
+
+    def setUp(self):
+        super(BaseActionTestCase, self).setUp()
+
+        class_name = self.action_cls.__name__
+        action_wrapper = MockActionWrapper(pack='tests', class_name=class_name)
+        self.action_service = MockActionService(action_wrapper=action_wrapper)
+
+    def get_action_instance(self, config=None):
+        """
+        Retrieve instance of the action class.
+        """
+        # pylint: disable=not-callable
+        instance = get_action_class_instance(action_cls=self.action_cls,
+                                             config=config,
+                                             action_service=self.action_service)
+        return instance
 
 
 class FakeResponse(object):

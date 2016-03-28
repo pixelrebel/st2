@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import os
+import sys
 
 from oslo_config import cfg
 
@@ -43,12 +44,6 @@ def do_register_cli_opts(opt, ignore_errors=False):
 
 
 def register_opts(ignore_errors=False):
-    auth_opts = [
-        cfg.BoolOpt('enable', default=True, help='Enable authentication middleware.'),
-        cfg.IntOpt('token_ttl', default=86400, help='Access token ttl in seconds.')
-    ]
-    do_register_opts(auth_opts, 'auth', ignore_errors)
-
     rbac_opts = [
         cfg.BoolOpt('enable', default=False, help='Enable RBAC.'),
     ]
@@ -73,9 +68,7 @@ def register_opts(ignore_errors=False):
 
     system_opts = [
         cfg.StrOpt('base_path', default='/opt/stackstorm',
-                   help='Base path to all st2 artifacts.'),
-        cfg.ListOpt('admin_users', default=[],
-                    help='A list of usernames for users which should have admin privileges')
+                   help='Base path to all st2 artifacts.')
     ]
     do_register_opts(system_opts, 'system', ignore_errors)
 
@@ -138,16 +131,39 @@ def register_opts(ignore_errors=False):
     # Common API options
     api_opts = [
         cfg.StrOpt('host', default='0.0.0.0', help='StackStorm API server host'),
-        cfg.IntOpt('port', default=9101, help='StackStorm API server port')
+        cfg.IntOpt('port', default=9101, help='StackStorm API server port'),
+        cfg.ListOpt('allow_origin', default=['http://127.0.0.1:3000'],
+                    help='List of origins allowed for api, auth and stream'),
+        cfg.BoolOpt('mask_secrets', default=True,
+                    help='True to mask secrets in the API responses')
     ]
     do_register_opts(api_opts, 'api', ignore_errors)
 
     # Common auth options
     auth_opts = [
         cfg.StrOpt('api_url', default=None,
-                   help='Base URL to the API endpoint excluding the version')
+                   help='Base URL to the API endpoint excluding the version'),
+        cfg.BoolOpt('enable', default=True, help='Enable authentication middleware.'),
+        cfg.IntOpt('token_ttl', default=86400, help='Access token ttl in seconds.')
     ]
     do_register_opts(auth_opts, 'auth', ignore_errors)
+
+    # Common action runner options
+    default_python_bin_path = sys.executable
+    base_dir = os.path.dirname(os.path.realpath(default_python_bin_path))
+    default_virtualenv_bin_path = os.path.join(base_dir, 'virtualenv')
+    action_runner_opts = [
+        cfg.StrOpt('logging', default='conf/logging.conf',
+                   help='location of the logging.conf file'),
+        cfg.StrOpt('python_binary', default=default_python_bin_path,
+                   help='Python binary which will be used by Python actions.'),
+        cfg.StrOpt('virtualenv_binary', default=default_virtualenv_bin_path,
+                   help='Virtualenv binary which should be used to create pack virtualenvs.'),
+        cfg.ListOpt('virtualenv_opts', default=['--system-site-packages'],
+                    help='List of virtualenv options to be passsed to "virtualenv" command that ' +
+                         'creates pack virtualenv.')
+    ]
+    do_register_opts(action_runner_opts, group='actionrunner')
 
     # Common options (used by action runner and sensor container)
     action_sensor_opts = [
@@ -173,6 +189,8 @@ def register_opts(ignore_errors=False):
         cfg.StrOpt('keystone_password', default=None, help='Password for authentication.'),
         cfg.StrOpt('keystone_project_name', default=None, help='OpenStack project scope.'),
         cfg.StrOpt('keystone_auth_url', default=None, help='Auth endpoint for Keystone.'),
+        cfg.StrOpt('cacert', default=None, help='Optional certificate to validate endpoint.'),
+        cfg.BoolOpt('insecure', default=False, help='Allow insecure communication with Mistral.'),
 
         cfg.StrOpt('api_url', default=None, help=('URL Mistral uses to talk back to the API.'
             'If not provided it defaults to public API URL. Note: This needs to be a base '

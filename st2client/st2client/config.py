@@ -13,22 +13,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import mock
-import pecan
+__all__ = [
+    'get_config',
+    'set_config'
+]
 
-from st2api.controllers.v1 import stream
-from st2api import listener
-from tests import FunctionalTest
+# Stores parsed config dictionary
+CONFIG = {}
 
 
-@mock.patch.object(pecan, 'request', type('request', (object,), {'environ': {}}))
-@mock.patch.object(pecan, 'response', mock.MagicMock())
-class TestStreamController(FunctionalTest):
+def get_config():
+    """
+    Retrieve parsed config object.
 
-    @mock.patch.object(stream, 'format', mock.Mock())
-    @mock.patch.object(listener, 'get_listener', mock.Mock())
-    def test_get_all(self):
-        resp = stream.StreamController().get_all()
-        self.assertIsInstance(resp._app_iter, mock.Mock)
-        self.assertEqual(resp._status, '200 OK')
-        self.assertIn(('Content-Type', 'text/event-stream; charset=UTF-8'), resp._headerlist)
+    :rtype: ``dict``
+    """
+    global CONFIG
+    return CONFIG
+
+
+def set_config(config):
+    """
+    Store parsing config object.
+
+    :type config: ``dict``
+
+    :rtype: ``dict``
+    """
+    global CONFIG
+    CONFIG = config
+    return config

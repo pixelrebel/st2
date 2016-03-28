@@ -48,6 +48,10 @@ CREATE_VIRTUALENV=true
 # Script beings here
 ####################
 
+function usage() {
+    echo "Usage: $0 [-x] -p <path to pack>" >&2
+}
+
 while getopts ":p:x" o; do
     case "${o}" in
         p)
@@ -69,6 +73,12 @@ while getopts ":p:x" o; do
     esac
 done
 
+if [ ! ${PACK_PATH} ]; then
+    # Missing required argument
+    usage
+    exit 2
+fi
+
 PACK_PATH=$(readlink -f ${PACK_PATH})
 if [ ! ${PACK_PATH} ]; then
     echo "Usage: $0 -p <pack path> [-x]"
@@ -88,6 +98,7 @@ PACK_TESTS_PATH="${PACK_PATH}/tests/"
 
 SENSORS_PATH="${PACK_PATH}/sensors/"
 ACTIONS_PATH="${PACK_PATH}/actions/"
+ETC_PATH="${PACK_PATH}/etc/"
 
 # Bail early if no tests are found, this way we don't need to wait for
 # environment set up.
@@ -126,11 +137,11 @@ fi
 if [ ${ST2_REPO_PATH} ]; then
     ST2_REPO_PATH=${ST2_REPO_PATH:-/tmp/st2}
     ST2_COMPONENTS=$(find ${ST2_REPO_PATH}/* -maxdepth 0 -name "st2*" -type d)
-    PACK_PYTHONPATH="$(join ":" ${ST2_COMPONENTS}):${SENSORS_PATH}:${ACTIONS_PATH}"
+    PACK_PYTHONPATH="$(join ":" ${ST2_COMPONENTS}):${SENSORS_PATH}:${ACTIONS_PATH}:${ETC_PATH}"
 else
     # ST2_REPO_PATH not provided, assume all the st2 component packages are
     # already in PYTHONPATH
-    PACK_PYTHONPATH="$(join ":" ${ST2_COMPONENTS}):${SENSORS_PATH}:${ACTIONS_PATH}"
+    PACK_PYTHONPATH="$(join ":" ${ST2_COMPONENTS}):${SENSORS_PATH}:${ACTIONS_PATH}:${ETC_PATH}"
 fi
 
 # Install st2 dependencies

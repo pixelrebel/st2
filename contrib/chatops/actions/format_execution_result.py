@@ -7,8 +7,8 @@ from st2common.util import jinja as jinja_utils
 
 
 class FormatResultAction(Action):
-    def __init__(self, config):
-        super(FormatResultAction, self).__init__(config)
+    def __init__(self, config=None, action_service=None):
+        super(FormatResultAction, self).__init__(config=config, action_service=action_service)
         api_url = os.environ.get('ST2_ACTION_API_URL', None)
         token = os.environ.get('ST2_ACTION_AUTH_TOKEN', None)
         self.client = Client(api_url=api_url, token=token)
@@ -26,6 +26,7 @@ class FormatResultAction(Action):
             'execution': execution
         }
         template = self.default_template
+        result = {}
 
         alias_id = execution['context'].get('action_alias_ref', {}).get('id', None)
         if alias_id:
@@ -35,14 +36,18 @@ class FormatResultAction(Action):
                 'alias': alias
             })
 
-            result = getattr(alias, 'result', None)
-            if result:
-                if not result.get('enabled', True):
+            result_params = getattr(alias, 'result', None)
+            if result_params:
+                if not result_params.get('enabled', True):
                     raise Exception("Output of this template is disabled.")
                 if 'format' in alias.result:
                     template = alias.result['format']
+                if 'extra' in alias.result:
+                    result['extra'] = jinja_utils.render_values(alias.result['extra'], context)
 
-        return self.jinja.from_string(template).render(context)
+        result['message'] = self.jinja.from_string(template).render(context),
+
+        return result
 
     def _get_execution(self, execution_id):
         if not execution_id:
@@ -51,4 +56,4 @@ class FormatResultAction(Action):
         if not execution:
             return None
         excludes = ["trigger", "trigger_type", "trigger_instance", "liveaction"]
-        return execution.to_dict(exclude_attributes= excludes)
+        return execution.to_dict(exclude_attributes=excludes)

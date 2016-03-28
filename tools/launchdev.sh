@@ -131,10 +131,22 @@ function st2start(){
         echo '  using gunicorn to run st2-api...'
         export ST2_CONFIG_PATH=${ST2_CONF}
         screen -d -m -S st2-api ./virtualenv/bin/gunicorn_pecan \
-            ./st2api/st2api/gunicorn_config.py -k eventlet -b 127.0.0.1:9101 --workers 1
+            ./st2api/st2api/gunicorn_config.py -k eventlet -b 0.0.0.0:9101 --workers 1
     else
         screen -d -m -S st2-api ./virtualenv/bin/python \
             ./st2api/bin/st2api \
+            --config-file $ST2_CONF
+    fi
+
+    # Run st2stream API server
+    if [ "${use_gunicorn}" = true ]; then
+        echo '  using gunicorn to run st2-stream'
+        export ST2_CONFIG_PATH=${ST2_CONF}
+        screen -d -m -S st2-stream ./virtualenv/bin/gunicorn_pecan \
+            ./st2stream/st2stream/gunicorn_config.py -k eventlet -b 0.0.0.0:9102 --workers 1
+    else
+        screen -d -m -S st2-stream ./virtualenv/bin/python \
+            ./st2stream/bin/st2stream \
             --config-file $ST2_CONF
     fi
 
@@ -181,13 +193,13 @@ function st2start(){
         echo '  using uwsgi for auth...'
         export ST2_CONFIG_PATH=${ST2_CONF}
         screen -d -m -S st2-auth ./virtualenv/bin/uwsgi \
-            --http 127.0.0.1:9100 --wsgi-file ./st2auth/st2auth/wsgi.py --processes 1 --threads 10 \
+            --http 0.0.0.0:9100 --wsgi-file ./st2auth/st2auth/wsgi.py --processes 1 --threads 10 \
             --buffer-size=32768
     elif [ "${use_gunicorn}" = true ]; then
         echo '  using gunicorn to run st2-auth...'
         export ST2_CONFIG_PATH=${ST2_CONF}
         screen -d -m -S st2-auth ./virtualenv/bin/gunicorn_pecan \
-            ./st2auth/st2auth/gunicorn_config.py -k eventlet -b 127.0.0.1:9100 --workers 1
+            ./st2auth/st2auth/gunicorn_config.py -k eventlet -b 0.0.0.0:9100 --workers 1
     else
         screen -d -m -S st2-auth ./virtualenv/bin/python \
         ./st2auth/bin/st2auth \
@@ -244,15 +256,14 @@ function st2stop(){
     fi
 
     if [ "${use_gunicorn}" = true ]; then
-        pids=`ps -ef | grep "[s]t2auth/gunicorn_config.py\|[s]t2api/gunicorn_config.py" | \
-              awk '{print $2}'`
+        pids=`ps -ef | grep "gunicorn_config.py" | awk '{print $2}'`
         if [ -n "$pids" ]; then
             echo "Killing gunicorn processes"
             # true ensures that any failure to kill a process which does not exist will not lead
             # to failure. for loop to ensure all processes are killed even if some are missing
             # assuming kill will fail-fast.
             for pid in ${pids}; do
-                echo ${pid} | xargs -L 1 kill || true
+                echo ${pid} | xargs -L 1 kill -9 || true
             done
         fi
     fi

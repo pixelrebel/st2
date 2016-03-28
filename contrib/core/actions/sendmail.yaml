@@ -1,8 +1,9 @@
 ---
-description: This sends an email
-enabled: true
-entry_point: send_mail/send_mail
 name: sendmail
+description: This sends an email
+entry_point: send_mail/send_mail
+runner_type: "local-shell-script"
+enabled: true
 parameters:
   from:
     description: Sender email address.
@@ -41,5 +42,8 @@ parameters:
     type: string
   sudo:
     immutable: true
-
-runner_type: "local-shell-script"
+  attachments:
+    description: Array of attachment file paths, comma-delimited.
+    position: 6
+    required: false
+    type: "string"

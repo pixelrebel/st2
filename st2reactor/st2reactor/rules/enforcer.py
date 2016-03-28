@@ -20,6 +20,7 @@ from st2common.constants import action as action_constants
 from st2common.constants.trace import TRACE_CONTEXT
 from st2common.models.api.trace import TraceContext
 from st2common.models.db.liveaction import LiveActionDB
+
 from st2common.models.db.rule_enforcement import RuleEnforcementDB
 from st2common.models.utils import action_param_utils
 from st2common.models.api.auth import get_system_username
@@ -50,7 +51,7 @@ class RuleEnforcer(object):
                        'a datastore, those characters need to be escaped' % (str(e)))
             raise ValueError(message)
 
-    def enforce(self):
+    def get_resolved_parameters(self):
         # TODO: Refactor this to avoid additional lookup in cast_params
         # TODO: rename self.rule.action -> self.rule.action_exec_spec
         action_ref = self.rule.action['ref']
@@ -58,10 +59,46 @@ class RuleEnforcer(object):
         if not action_db:
             raise ValueError('Action "%s" doesn\'t exist' % (action_ref))
 
-        data = self.data_transformer(self.rule.action.parameters)
-        LOG.info('Invoking action %s for trigger_instance %s with data %s.',
+        return self.data_transformer(self.rule.action.parameters)
+
+    def enforce(self):
+        rule_spec = {'ref': self.rule.ref, 'id': str(self.rule.id), 'uid': self.rule.uid}
+        enforcement_db = RuleEnforcementDB(trigger_instance_id=str(self.trigger_instance.id),
+                                           rule=rule_spec)
+        extra = {
+            'trigger_instance_db': self.trigger_instance,
+            'rule_db': self.rule
+        }
+        execution_db = None
+        try:
+            execution_db = self._do_enforce()
+            # pylint: disable=no-member
+            enforcement_db.execution_id = str(execution_db.id)
+            extra['execution_db'] = execution_db
+        except Exception as e:
+            # Record the failure reason in the RuleEnforcement.
+            enforcement_db.failure_reason = e.message
+            LOG.exception('Failed kicking off execution for rule %s.', self.rule, extra=extra)
+        finally:
+            self._update_enforcement(enforcement_db)
+
+        # pylint: disable=no-member
+        if not execution_db or execution_db.status not in EXEC_KICKED_OFF_STATES:
+            LOG.audit('Rule enforcement failed. Execution of Action %s failed. '
+                      'TriggerInstance: %s and Rule: %s',
+                      self.rule.action.ref, self.trigger_instance, self.rule,
+                      extra=extra)
+        else:
+            LOG.audit('Rule enforced. Execution %s, TriggerInstance %s and Rule %s.',
+                      execution_db, self.trigger_instance, self.rule, extra=extra)
+
+        return execution_db
+
+    def _do_enforce(self):
+        params = self.get_resolved_parameters()
+        LOG.info('Invoking action %s for trigger_instance %s with params %s.',
                  self.rule.action.ref, self.trigger_instance.id,
-                 json.dumps(data))
+                 json.dumps(params))
 
         # update trace before invoking the action.
         trace_context = self._update_trace()
@@ -74,35 +111,7 @@ class RuleEnforcer(object):
             TRACE_CONTEXT: trace_context
         }
 
-        extra = {'trigger_instance_db': self.trigger_instance, 'rule_db': self.rule}
-        rule_spec = {'ref': self.rule.ref, 'id': str(self.rule.id), 'uid': self.rule.uid}
-        enforcement_db = RuleEnforcementDB(trigger_instance_id=str(self.trigger_instance.id),
-                                           rule=rule_spec)
-        try:
-            execution_db = RuleEnforcer._invoke_action(self.rule.action, data, context)
-            # pylint: disable=no-member
-            enforcement_db.execution_id = str(execution_db.id)
-            # pylint: enable=no-member
-        except:
-            LOG.exception('Failed kicking off execution for rule %s.', self.rule, extra=extra)
-            return None
-        finally:
-            self._update_enforcement(enforcement_db)
-
-        extra['execution_db'] = execution_db
-        # pylint: disable=no-member
-        if execution_db.status not in EXEC_KICKED_OFF_STATES:
-            # pylint: enable=no-member
-            LOG.audit('Rule enforcement failed. Execution of Action %s failed. '
-                      'TriggerInstance: %s and Rule: %s',
-                      self.rule.action.name, self.trigger_instance, self.rule,
-                      extra=extra)
-            return execution_db
-
-        LOG.audit('Rule enforced. Execution %s, TriggerInstance %s and Rule %s.',
-                  execution_db, self.trigger_instance, self.rule, extra=extra)
-
-        return execution_db
+        return RuleEnforcer._invoke_action(self.rule.action, params, context)
 
     def _update_trace(self):
         """
