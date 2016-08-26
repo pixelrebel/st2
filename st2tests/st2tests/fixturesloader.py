@@ -132,6 +132,10 @@ def get_fixtures_base_path():
     return os.path.join(os.path.dirname(__file__), 'fixtures')
 
 
+def get_fixtures_packs_base_path():
+    return os.path.join(os.path.dirname(__file__), 'fixtures/packs')
+
+
 def get_resources_base_path():
     return os.path.join(os.path.dirname(__file__), 'resources')
 
@@ -167,12 +171,16 @@ class FixturesLoader(object):
 
         db_models = {}
         for fixture_type, fixtures in six.iteritems(fixtures_dict):
-
             API_MODEL = FIXTURE_API_MODEL.get(fixture_type, None)
             PERSISTENCE_MODEL = FIXTURE_PERSISTENCE_MODEL.get(fixture_type, None)
 
             loaded_fixtures = {}
             for fixture in fixtures:
+                # Guard against copy and type and similar typos
+                if fixture in loaded_fixtures:
+                    msg = 'Fixture "%s" is specified twice, probably a typo.' % (fixture)
+                    raise ValueError(msg)
+
                 fixture_dict = self.meta_loader.load(
                     self._get_fixture_file_path_abs(fixtures_pack_path, fixture_type, fixture))
                 api_model = API_MODEL(**fixture_dict)

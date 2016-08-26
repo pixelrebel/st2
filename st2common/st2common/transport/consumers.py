@@ -18,10 +18,19 @@ import eventlet
 import six
 
 from kombu.mixins import ConsumerMixin
+from oslo_config import cfg
 
 from st2common import log as logging
 from st2common.util.greenpooldispatch import BufferedDispatcher
 
+__all__ = [
+    'QueueConsumer',
+    'StagedQueueConsumer',
+    'ActionsQueueConsumer',
+
+    'MessageHandler',
+    'StagedMessageHandler'
+]
 
 LOG = logging.getLogger(__name__)
 
@@ -47,18 +56,88 @@ class QueueConsumer(ConsumerMixin):
 
     def process(self, body, message):
         try:
+            if not isinstance(body, self._handler.message_type):
+                raise TypeError('Received an unexpected type "%s" for payload.' % type(body))
+
             self._dispatcher.dispatch(self._process_message, body)
+        except:
+            LOG.exception('%s failed to process message: %s', self.__class__.__name__, body)
         finally:
+            # At this point we will always ack a message.
             message.ack()
 
     def _process_message(self, body):
         try:
-            if not isinstance(body, self._handler.message_type):
-                raise TypeError('Received an unexpected type "%s" for payload.' % type(body))
-
             self._handler.process(body)
         except:
             LOG.exception('%s failed to process message: %s', self.__class__.__name__, body)
+
+
+class StagedQueueConsumer(QueueConsumer):
+    """
+    Used by ``StagedMessageHandler`` to effectively manage it 2 step message handling.
+    """
+
+    def process(self, body, message):
+        try:
+            if not isinstance(body, self._handler.message_type):
+                raise TypeError('Received an unexpected type "%s" for payload.' % type(body))
+            response = self._handler.pre_ack_process(body)
+            self._dispatcher.dispatch(self._process_message, response)
+        except:
+            LOG.exception('%s failed to process message: %s', self.__class__.__name__, body)
+        finally:
+            # At this point we will always ack a message.
+            message.ack()
+
+
+class ActionsQueueConsumer(QueueConsumer):
+    """
+    Special Queue Consumer for action runner which uses multiple BufferedDispatcher pools:
+
+    1. For regular (non-workflow) actions
+    2. One for workflow actions
+
+    This way we can ensure workflow actions never block non-workflow actions.
+    """
+
+    def __init__(self, connection, queues, handler):
+        self.connection = connection
+
+        self._queues = queues
+        self._handler = handler
+
+        workflows_pool_size = cfg.CONF.actionrunner.workflows_pool_size
+        actions_pool_size = cfg.CONF.actionrunner.actions_pool_size
+        self._workflows_dispatcher = BufferedDispatcher(dispatch_pool_size=workflows_pool_size,
+                                                        name='workflows-dispatcher')
+        self._actions_dispatcher = BufferedDispatcher(dispatch_pool_size=actions_pool_size,
+                                                      name='actions-dispatcher')
+
+    def process(self, body, message):
+        try:
+            if not isinstance(body, self._handler.message_type):
+                raise TypeError('Received an unexpected type "%s" for payload.' % type(body))
+
+            action_is_workflow = getattr(body, 'action_is_workflow', False)
+            if action_is_workflow:
+                # Use workflow dispatcher queue
+                dispatcher = self._workflows_dispatcher
+            else:
+                # Use queue for regular or workflow actions
+                dispatcher = self._actions_dispatcher
+
+            LOG.debug('Using BufferedDispatcher pool: "%s"', str(dispatcher))
+            dispatcher.dispatch(self._process_message, body)
+        except:
+            LOG.exception('%s failed to process message: %s', self.__class__.__name__, body)
+        finally:
+            # At this point we will always ack a message.
+            message.ack()
+
+    def shutdown(self):
+        self._workflows_dispatcher.shutdown()
+        self._actions_dispatcher.shutdown()
 
 
 @six.add_metaclass(abc.ABCMeta)
@@ -66,7 +145,8 @@ class MessageHandler(object):
     message_type = None
 
     def __init__(self, connection, queues):
-        self._queue_consumer = QueueConsumer(connection, queues, self)
+        self._queue_consumer = self.get_queue_consumer(connection=connection,
+                                                       queues=queues)
         self._consumer_thread = None
 
     def start(self, wait=False):
@@ -86,3 +166,33 @@ class MessageHandler(object):
     @abc.abstractmethod
     def process(self, message):
         pass
+
+    def get_queue_consumer(self, connection, queues):
+        return QueueConsumer(connection=connection, queues=queues, handler=self)
+
+
+@six.add_metaclass(abc.ABCMeta)
+class StagedMessageHandler(MessageHandler):
+    """
+    MessageHandler to deal with messages in 2 steps.
+        1. pre_ack_process : This is called on the handler before ack-ing the message.
+        2. process: Called after ack-in the messages
+    This 2 step approach provides a way for the handler to do some hadling like saving to DB etc
+    before acknowleding and then performing future processing async. This way even if the handler
+    or owning process is taken down system will still maintain track of the message.
+    """
+
+    @abc.abstractmethod
+    def pre_ack_process(self, message):
+        """
+        Called before acknowleding a message. Good place to track the message via a DB entry or some
+        other applicable mechnism.
+
+        The reponse of this method is passed into the ``process`` method. This was whatever is the
+        processed version of the message can be moved forward. It is always possible to simply
+        return ``message`` and have ``process`` handle the original message.
+        """
+        pass
+
+    def get_queue_consumer(self, connection, queues):
+        return StagedQueueConsumer(connection=connection, queues=queues, handler=self)

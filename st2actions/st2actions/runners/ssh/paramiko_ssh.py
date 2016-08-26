@@ -30,14 +30,13 @@ import paramiko
 from st2common.log import logging
 from st2common.util.misc import strip_shell_chars
 from st2common.util.shell import quote_unix
+from st2common.constants.runners import REMOTE_RUNNER_PRIVATE_KEY_HEADER
 
 __all__ = [
     'ParamikoSSHClient',
 
     'SSHCommandTimeoutError'
 ]
-
-PRIVATE_KEY_HEADER = 'PRIVATE KEY-----'.lower()
 
 
 class SSHCommandTimeoutError(Exception):
@@ -75,13 +74,15 @@ class ParamikoSSHClient(object):
 
     # Maximum number of bytes to read at once from a socket
     CHUNK_SIZE = 1024
+
     # How long to sleep while waiting for command to finish
     SLEEP_DELAY = 1.5
+
     # Connect socket timeout
     CONNECT_TIMEOUT = 60
 
     def __init__(self, hostname, port=22, username=None, password=None, bastion_host=None,
-                 key=None, key_files=None, key_material=None, timeout=None):
+                 key_files=None, key_material=None, timeout=None, passphrase=None):
         """
         Authentication is always attempted in the following order:
 
@@ -97,20 +98,28 @@ class ParamikoSSHClient(object):
             raise ValueError(('key_files and key_material arguments are '
                               'mutually exclusive'))
 
+        if passphrase and not (key_files or key_material):
+            raise ValueError('passphrase should accompany private key material')
+
+        credentials_provided = password or key_files or key_material
+        if not credentials_provided and cfg.CONF.system_user.ssh_key_file:
+            key_files = cfg.CONF.system_user.ssh_key_file
+
         self.hostname = hostname
         self.port = port
         self.username = username if username else cfg.CONF.system_user
         self.password = password
-        self.key = key if key else cfg.CONF.system_user.ssh_key_file
         self.key_files = key_files
-        if not self.key_files and self.key:
-            self.key_files = key  # `key` arg is deprecated.
         self.timeout = timeout or ParamikoSSHClient.CONNECT_TIMEOUT
         self.key_material = key_material
-        self.client = None
-        self.logger = logging.getLogger(__name__)
-        self.sftp = None
         self.bastion_host = bastion_host
+        self.passphrase = passphrase
+
+        self.logger = logging.getLogger(__name__)
+
+        self.client = None
+        self.sftp_client = None
+
         self.bastion_client = None
         self.bastion_socket = None
 
@@ -133,7 +142,6 @@ class ParamikoSSHClient(object):
             self.bastion_socket = transport.open_channel('direct-tcpip', real_addr, local_addr)
 
         self.client = self._connect(host=self.hostname, socket=self.bastion_socket)
-        self.sftp = self.client.open_sftp()
         return True
 
     def put(self, local_path, remote_path, mode=None, mirror_local_mode=False):
@@ -419,11 +427,25 @@ class ParamikoSSHClient(object):
         self.logger.debug('Closing server connection')
 
         self.client.close()
-        if self.sftp:
-            self.sftp.close()
+
+        if self.sftp_client:
+            self.sftp_client.close()
+
         if self.bastion_client:
             self.bastion_client.close()
+
         return True
+
+    @property
+    def sftp(self):
+        """
+        Method which lazily establishes SFTP connection if one is not established yet when this
+        variable is accessed.
+        """
+        if not self.sftp_client:
+            self.sftp_client = self.client.open_sftp()
+
+        return self.sftp_client
 
     def _consume_stdout(self, chan):
         """
@@ -478,14 +500,14 @@ class ParamikoSSHClient(object):
             self.logger.exception('Non UTF-8 character found in data: %s', data)
             raise
 
-    def _get_pkey_object(self, key_material):
+    def _get_pkey_object(self, key_material, passphrase):
         """
         Try to detect private key type and return paramiko.PKey object.
         """
 
         for cls in [paramiko.RSAKey, paramiko.DSSKey, paramiko.ECDSAKey]:
             try:
-                key = cls.from_private_key(StringIO(key_material))
+                key = cls.from_private_key(StringIO(key_material), password=passphrase)
             except paramiko.ssh_exception.SSHException:
                 # Invalid key, try other key type
                 pass
@@ -495,10 +517,12 @@ class ParamikoSSHClient(object):
         # If a user passes in something which looks like file path we throw a more friendly
         # exception letting the user know we expect the contents a not a path.
         # Note: We do it here and not up the stack to avoid false positives.
-        contains_header = PRIVATE_KEY_HEADER in key_material.lower()
+        contains_header = REMOTE_RUNNER_PRIVATE_KEY_HEADER in key_material.lower()
         if not contains_header and (key_material.count('/') >= 1 or key_material.count('\\') >= 1):
             msg = ('"private_key" parameter needs to contain private key data / content and not '
                    'a path')
+        elif passphrase:
+            msg = 'Invalid passphrase or invalid/unsupported key type'
         else:
             msg = 'Invalid or unsupported key type'
 
@@ -530,8 +554,19 @@ class ParamikoSSHClient(object):
         if self.key_files:
             conninfo['key_filename'] = self.key_files
 
+            passphrase_reqd = self._is_key_file_needs_passphrase(self.key_files)
+            if passphrase_reqd and not self.passphrase:
+                msg = ('Private key file %s is passphrase protected. Supply a passphrase.' %
+                       self.key_files)
+                raise paramiko.ssh_exception.PasswordRequiredException(msg)
+
+            if self.passphrase:
+                # Optional passphrase for unlocking the private key
+                conninfo['password'] = self.passphrase
+
         if self.key_material:
-            conninfo['pkey'] = self._get_pkey_object(key_material=self.key_material)
+            conninfo['pkey'] = self._get_pkey_object(key_material=self.key_material,
+                                                     passphrase=self.passphrase)
 
         if not self.password and not (self.key_files or self.key_material):
             conninfo['allow_agent'] = True
@@ -549,6 +584,18 @@ class ParamikoSSHClient(object):
         client.connect(**conninfo)
 
         return client
+
+    @staticmethod
+    def _is_key_file_needs_passphrase(file):
+        for cls in [paramiko.RSAKey, paramiko.DSSKey, paramiko.ECDSAKey]:
+            try:
+                cls.from_private_key_file(file, password=None)
+            except paramiko.ssh_exception.PasswordRequiredException:
+                return True
+            except paramiko.ssh_exception.SSHException:
+                continue
+
+        return False
 
     def __repr__(self):
         return ('<ParamikoSSHClient hostname=%s,port=%s,username=%s,id=%s>' %

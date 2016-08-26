@@ -11,6 +11,7 @@ oslo.config
 paramiko
 pyyaml
 pymongo
+python-keyczar
 requests
 retrying
 semver
@@ -18,5 +19,4 @@ six
 tooz
 bencode
 ipaddr
-git+https://github.com/StackStorm/fabric.git@stanley-patched#egg=fabric
 git+https://github.com/StackStorm/pecan.git@st2-patched#egg=pecan

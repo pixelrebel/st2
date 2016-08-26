@@ -30,7 +30,7 @@ LOG = logging.getLogger(__name__)
 PACK_SEPARATOR = '.'
 
 
-class ActionAliasDB(stormbase.StormBaseDB, stormbase.ContentPackResourceMixin,
+class ActionAliasDB(stormbase.StormFoundationDB, stormbase.ContentPackResourceMixin,
                     stormbase.UIDFieldMixin):
     """
     Database entity that represent an Alias for an action.
@@ -47,10 +47,13 @@ class ActionAliasDB(stormbase.StormBaseDB, stormbase.ContentPackResourceMixin,
     RESOURCE_TYPE = ResourceType.ACTION
     UID_FIELDS = ['pack', 'name']
 
+    name = me.StringField(required=True)
     ref = me.StringField(required=True)
+    description = me.StringField()
     pack = me.StringField(
         required=True,
-        help_text='Name of the content pack.')
+        help_text='Name of the content pack.',
+        unique_with='name')
     enabled = me.BooleanField(
         required=True, default=True,
         help_text='A flag indicating whether the action alias is enabled.')
@@ -72,13 +75,30 @@ class ActionAliasDB(stormbase.StormBaseDB, stormbase.ContentPackResourceMixin,
     )
 
     meta = {
-        'indexes': ['name']
+        'indexes': stormbase.UIDFieldMixin.get_indexes()
     }
 
     def __init__(self, *args, **values):
         super(ActionAliasDB, self).__init__(*args, **values)
         self.ref = self.get_reference().ref
         self.uid = self.get_uid()
+
+    def get_format_strings(self):
+        """
+        Return a list of all the supported format strings.
+
+        :rtype: ``list`` of ``str``
+        """
+        result = []
+
+        formats = getattr(self, 'formats', [])
+        for format_string in formats:
+            if isinstance(format_string, dict) and format_string.get('representation', None):
+                result.extend(format_string['representation'])
+            else:
+                result.append(format_string)
+
+        return result
 
 
 # specialized access objects

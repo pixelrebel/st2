@@ -13,9 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import re
 import abc
-import copy
 import functools
 import inspect
 
@@ -32,6 +30,7 @@ from st2common.util import mongoescape as util_mongodb
 from st2common.util import schema as util_schema
 from st2common.util.debugging import is_enabled as is_debugging_enabled
 from st2common.util.jsonify import json_encode
+from st2common.util.api import get_exception_for_type_error
 from st2common import log as logging
 
 __all__ = [
@@ -84,7 +83,8 @@ class BaseAPI(object):
                                        cls=util_schema.CustomValidator, use_default=True,
                                        allow_default_none=True)
 
-        return self.__class__(**cleaned)
+        # Note: We use type() instead of self.__class__ since self.__class__ confuses pylint
+        return type(self)(**cleaned)
 
     @classmethod
     def _from_model(cls, model, mask_secrets=False):
@@ -144,9 +144,62 @@ class APIUIDMixin(object):
         return pack_uid
 
 
-def jsexpose(arg_types=None, body_cls=None, status_code=None, content_type='application/json'):
+def cast_argument_value(value_type, value):
+    if value_type == bool:
+        def cast_func(value):
+            value = str(value)
+            return value.lower() in ['1', 'true']
+    else:
+        cast_func = value_type
+
+    result = cast_func(value)
+    return result
+
+
+def get_controller_args_for_types(func, arg_types, args, kwargs):
     """
-    :param arg_types: A list of types for the function arguments.
+    Build a list of arguments and dictionary of keyword arguments which are passed to the
+    controller method based on the arg_types specification.
+
+    Note: args argument is mutated in place.
+    """
+    result_args = []
+    result_kwargs = {}
+
+    argspec = inspect.getargspec(func)
+    names = argspec.args[1:]  # Note: we skip "self"
+
+    for index, name in enumerate(names):
+        # 1. Try kwargs first
+        if name in kwargs:
+            try:
+                value = kwargs[name]
+                value_type = arg_types[index]
+                value = cast_argument_value(value_type=value_type, value=value)
+                result_kwargs[name] = value
+            except IndexError:
+                LOG.warning("Type definition for '%s' argument of '%s' is missing.",
+                            name, func.__name__)
+
+            continue
+
+        # 2. Try positional args
+        try:
+            value = args.pop(0)
+            value_type = arg_types[index]
+            value = cast_argument_value(value_type=value_type, value=value)
+            result_args.append(value)
+        except IndexError:
+            LOG.warning("Type definition for '%s' argument of '%s' is missing.",
+                        name, func.__name__)
+
+    return result_args, result_kwargs
+
+
+def jsexpose(arg_types=None, body_cls=None, status_code=None, content_type='application/json',
+             method=None):
+    """
+    :param arg_types: A list of types for the function arguments (e.g. [str, str, int, bool]).
     :type arg_types: ``list``
 
     :param body_cls: Request body class. If provided, this class will be used to create an instance
@@ -168,53 +221,54 @@ def jsexpose(arg_types=None, body_cls=None, status_code=None, content_type='appl
         def callfunction(*args, **kwargs):
             function_name = f.__name__
             args = list(args)
-            types = copy.copy(arg_types)
             more = [args.pop(0)]
 
-            if types:
-                argspec = inspect.getargspec(f)
-                names = argspec.args[1:]
+            def cast_value(value_type, value):
+                if value_type == bool:
+                    def cast_func(value):
+                        return value.lower() in ['1', 'true']
+                else:
+                    cast_func = value_type
 
-                for name in names:
-                    try:
-                        a = args.pop(0)
-                        more.append(types.pop(0)(a))
-                    except IndexError:
-                        try:
-                            kwargs[name] = types.pop(0)(kwargs[name])
-                        except IndexError:
-                            LOG.warning("Type definition for '%s' argument of '%s' "
-                                        "is missing.", name, f.__name__)
-                        except KeyError:
-                            pass
+                result = cast_func(value)
+                return result
 
             if body_cls:
                 if pecan.request.body:
                     data = pecan.request.json
+
+                    obj = body_cls(**data)
+                    try:
+                        obj = obj.validate()
+                    except (jsonschema.ValidationError, ValueError) as e:
+                        raise exc.HTTPBadRequest(detail=e.message,
+                                                 comment=traceback.format_exc())
+                    except Exception as e:
+                        raise exc.HTTPInternalServerError(detail=e.message,
+                                                          comment=traceback.format_exc())
+
+                    # Set default pack if one is not provided for resource create
+                    if function_name == 'post' and not hasattr(obj, 'pack'):
+                        extra = {
+                            'resource_api': obj,
+                            'default_pack_name': DEFAULT_PACK_NAME
+                        }
+                        LOG.debug('Pack not provided in the body, setting a default pack name',
+                                  extra=extra)
+                        setattr(obj, 'pack', DEFAULT_PACK_NAME)
                 else:
-                    data = {}
-
-                obj = body_cls(**data)
-                try:
-                    obj = obj.validate()
-                except (jsonschema.ValidationError, ValueError) as e:
-                    raise exc.HTTPBadRequest(detail=e.message,
-                                             comment=traceback.format_exc())
-                except Exception as e:
-                    raise exc.HTTPInternalServerError(detail=e.message,
-                                                      comment=traceback.format_exc())
-
-                # Set default pack if one is not provided for resource create
-                if function_name == 'post' and not hasattr(obj, 'pack'):
-                    extra = {
-                        'resource_api': obj,
-                        'default_pack_name': DEFAULT_PACK_NAME
-                    }
-                    LOG.debug('Pack not provided in the body, setting a default pack name',
-                              extra=extra)
-                    setattr(obj, 'pack', DEFAULT_PACK_NAME)
+                    obj = None
 
                 more.append(obj)
+
+            if arg_types:
+                # Cast and transform arguments based on the provided arg_types specification
+                result_args, result_kwargs = get_controller_args_for_types(func=f,
+                                                                           arg_types=arg_types,
+                                                                           args=args,
+                                                                           kwargs=kwargs)
+                more = more + result_args
+                kwargs.update(result_kwargs)
 
             args = tuple(more) + tuple(args)
 
@@ -229,17 +283,8 @@ def jsexpose(arg_types=None, body_cls=None, status_code=None, content_type='appl
             try:
                 result = f(*args, **kwargs)
             except TypeError as e:
-                message = str(e)
-                # Invalid number of arguments passed to the function meaning invalid path was
-                # requested
-                # Note: The check is hacky, but it works for now.
-                func_name = f.__name__
-                pattern = '%s\(\) takes exactly \d+ arguments \(\d+ given\)' % (func_name)
-
-                if re.search(pattern, message):
-                    raise exc.HTTPNotFound()
-                else:
-                    raise e
+                e = get_exception_for_type_error(func=f, exc=e)
+                raise e
 
             if status_code:
                 pecan.response.status = status_code

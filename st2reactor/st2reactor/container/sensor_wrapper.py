@@ -23,10 +23,11 @@ from oslo_config import cfg
 from st2common import log as logging
 from st2common.logging.misc import set_log_level_for_all_loggers
 from st2common.models.api.trace import TraceContext
+from st2common.models.api.trigger import TriggerAPI
 from st2common.persistence.db_init import db_setup_with_retry
 from st2common.transport.reactor import TriggerDispatcher
 from st2common.util import loader
-from st2common.util.config_parser import ContentPackConfigParser
+from st2common.util.config_loader import ContentPackConfigLoader
 from st2common.services.triggerwatcher import TriggerWatcher
 from st2reactor.sensor.base import Sensor, PollingSensor
 from st2reactor.sensor import config
@@ -158,7 +159,12 @@ class SensorWrapper(object):
         username = cfg.CONF.database.username if hasattr(cfg.CONF.database, 'username') else None
         password = cfg.CONF.database.password if hasattr(cfg.CONF.database, 'password') else None
         db_setup_with_retry(cfg.CONF.database.db_name, cfg.CONF.database.host,
-                            cfg.CONF.database.port, username=username, password=password)
+                            cfg.CONF.database.port, username=username, password=password,
+                            ssl=cfg.CONF.database.ssl, ssl_keyfile=cfg.CONF.database.ssl_keyfile,
+                            ssl_certfile=cfg.CONF.database.ssl_certfile,
+                            ssl_cert_reqs=cfg.CONF.database.ssl_cert_reqs,
+                            ssl_ca_certs=cfg.CONF.database.ssl_ca_certs,
+                            ssl_match_hostname=cfg.CONF.database.ssl_match_hostname)
 
         # 3. Instantiate the watcher
         self._trigger_watcher = TriggerWatcher(create_handler=self._handle_create_trigger,
@@ -253,9 +259,14 @@ class SensorWrapper(object):
         _, filename = os.path.split(self._file_path)
         module_name, _ = os.path.splitext(filename)
 
-        sensor_class = loader.register_plugin_class(base_class=Sensor,
-                                                    file_path=self._file_path,
-                                                    class_name=self._class_name)
+        try:
+            sensor_class = loader.register_plugin_class(base_class=Sensor,
+                                                        file_path=self._file_path,
+                                                        class_name=self._class_name)
+        except Exception as e:
+            msg = ('Failed to load sensor class from file "%s"'
+                   ' (sensor file most likely doesn\'t exist): %s' % (self._file_path, str(e)))
+            raise ValueError(msg)
 
         if not sensor_class:
             raise ValueError('Sensor module is missing a class with name "%s"' %
@@ -279,22 +290,18 @@ class SensorWrapper(object):
         return sensor_instance
 
     def _get_sensor_config(self):
-        config_parser = ContentPackConfigParser(pack_name=self._pack)
-        config = config_parser.get_sensor_config(sensor_file_path=self._file_path)
+        config_loader = ContentPackConfigLoader(pack_name=self._pack)
+        config = config_loader.get_config()
 
         if config:
-            self._logger.info('Using config "%s" for sensor "%s"' % (config.file_path,
-                                                                     self._class_name))
-            return config.config
+            self._logger.info('Found config for sensor "%s"' % (self._class_name))
         else:
             self._logger.info('No config found for sensor "%s"' % (self._class_name))
-            return {}
+
+        return config
 
     def _sanitize_trigger(self, trigger):
-        sanitized = trigger._data
-        if 'id' in sanitized:
-            # Friendly objectid rather than the MongoEngine representation.
-            sanitized['id'] = str(sanitized['id'])
+        sanitized = TriggerAPI.from_model(trigger).to_dict()
         return sanitized
 
 

@@ -56,7 +56,8 @@ def setup(service, config, setup_db=True, register_mq_exchanges=True,
 
     1. Parses config and CLI arguments
     2. Establishes DB connection
-    3. Set log level for all the loggers to DEBUG if --debug flag is present
+    3. Set log level for all the loggers to DEBUG if --debug flag is present or
+       if system.debug config option is set to True.
     4. Registers RabbitMQ exchanges
     5. Registers common signal handlers
     6. Register internal trigger types
@@ -86,7 +87,7 @@ def setup(service, config, setup_db=True, register_mq_exchanges=True,
     logging.setup(logging_config_path, redirect_stderr=cfg.CONF.log.redirect_stderr,
                   excludes=cfg.CONF.log.excludes)
 
-    if cfg.CONF.debug:
+    if cfg.CONF.debug or cfg.CONF.system.debug:
         enable_debugging()
 
     if cfg.CONF.profile:
@@ -129,8 +130,12 @@ def db_setup():
 
     connection = db_init.db_setup_with_retry(
         db_name=cfg.CONF.database.db_name, db_host=cfg.CONF.database.host,
-        db_port=cfg.CONF.database.port, username=username, password=password
-    )
+        db_port=cfg.CONF.database.port, username=username, password=password,
+        ssl=cfg.CONF.database.ssl, ssl_keyfile=cfg.CONF.database.ssl_keyfile,
+        ssl_certfile=cfg.CONF.database.ssl_certfile,
+        ssl_cert_reqs=cfg.CONF.database.ssl_cert_reqs,
+        ssl_ca_certs=cfg.CONF.database.ssl_ca_certs,
+        ssl_match_hostname=cfg.CONF.database.ssl_match_hostname)
     return connection
 
 

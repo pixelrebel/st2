@@ -16,6 +16,7 @@
 import six
 
 from st2common import log as logging
+from st2common.constants.triggers import TRIGGER_INSTANCE_PENDING
 from st2common.exceptions.db import StackStormDBObjectNotFoundError
 from st2common.models.db.trigger import TriggerInstanceDB
 from st2common.persistence.trigger import TriggerInstance
@@ -27,11 +28,11 @@ LOG = logging.getLogger('st2reactor.sensor.container_utils')
 def create_trigger_instance(trigger, payload, occurrence_time, raise_on_no_trigger=False):
     """
     This creates a trigger instance object given trigger and payload.
-    Trigger can be just a string reference (pack.name) or a ``dict``
-    containing  'type' and 'parameters'.
+    Trigger can be just a string reference (pack.name) or a ``dict`` containing 'id' or
+    'uid' or type' and 'parameters' keys.
 
-    :param trigger: Dictionary with trigger query filters.
-    :type trigger: ``dict``
+    :param trigger: Trigger reference or dictionary with trigger query filters.
+    :type trigger: ``str`` or ``dict``
 
     :param payload: Trigger payload.
     :type payload: ``dict``
@@ -40,10 +41,28 @@ def create_trigger_instance(trigger, payload, occurrence_time, raise_on_no_trigg
     if isinstance(trigger, six.string_types):
         trigger_db = TriggerService.get_trigger_db_by_ref(trigger)
     else:
-        type_ = trigger.get('type', None)
-        parameters = trigger.get('parameters', {})
-        trigger_db = TriggerService.get_trigger_db_given_type_and_params(type=type_,
-                                                                         parameters=parameters)
+        # If id / uid is available we try to look up Trigger by id. This way we can avoid bug in
+        # pymongo / mongoengine related to "parameters" dictionary lookups
+        trigger_id = trigger.get('id', None)
+        trigger_uid = trigger.get('uid', None)
+
+        # TODO: Remove parameters dictionary look up when we can confirm each trigger dictionary
+        # passed to this method always contains id or uid
+        if trigger_id:
+            LOG.debug('Looking up TriggerDB by id: %s', trigger_id)
+            trigger_db = TriggerService.get_trigger_db_by_id(id=trigger_id)
+        elif trigger_uid:
+            LOG.debug('Looking up TriggerDB by uid: %s', trigger_uid)
+            trigger_db = TriggerService.get_trigger_db_by_uid(uid=trigger_uid)
+        else:
+            # Last resort - look it up by parameters
+            trigger_type = trigger.get('type', None)
+            parameters = trigger.get('parameters', {})
+
+            LOG.debug('Looking up TriggerDB by type and parameters: type=%s, parameters=%s',
+                      trigger_type, parameters)
+            trigger_db = TriggerService.get_trigger_db_given_type_and_params(type=trigger_type,
+                                                                             parameters=parameters)
 
     if trigger_db is None:
         LOG.debug('No trigger in db for %s', trigger)
@@ -57,4 +76,10 @@ def create_trigger_instance(trigger, payload, occurrence_time, raise_on_no_trigg
     trigger_instance.trigger = trigger_ref
     trigger_instance.payload = payload
     trigger_instance.occurrence_time = occurrence_time
+    trigger_instance.status = TRIGGER_INSTANCE_PENDING
+    return TriggerInstance.add_or_update(trigger_instance)
+
+
+def update_trigger_instance_status(trigger_instance, status):
+    trigger_instance.status = status
     return TriggerInstance.add_or_update(trigger_instance)

@@ -14,9 +14,10 @@
 # limitations under the License.
 
 import jsonschema
-import pecan
+from jinja2.exceptions import UndefinedError
+from pecan import (abort, rest, request)
 import six
-from pecan import rest
+
 from st2common import log as logging
 from st2common.models.api.base import jsexpose
 from st2common.exceptions.db import StackStormDBObjectNotFoundError
@@ -26,7 +27,8 @@ from st2common.models.api.auth import get_system_username
 from st2common.models.api.execution import ActionExecutionAPI
 from st2common.models.db.liveaction import LiveActionDB
 from st2common.models.db.notification import NotificationSchema, NotificationSubSchema
-from st2common.models.utils import action_alias_utils, action_param_utils
+from st2common.models.utils import action_param_utils
+from st2common.models.utils.action_alias_utils import extract_parameters_for_action_alias_db
 from st2common.persistence.actionalias import ActionAlias
 from st2common.services import action as action_service
 from st2common.util import action_db as action_utils
@@ -53,7 +55,7 @@ class ActionAliasExecutionController(rest.RestController):
         action_alias_name = payload.name if payload else None
 
         if not action_alias_name:
-            pecan.abort(http_client.BAD_REQUEST, 'Alias execution "name" is required')
+            abort(http_client.BAD_REQUEST, 'Alias execution "name" is required')
 
         format_str = payload.format or ''
         command = payload.command or ''
@@ -65,17 +67,18 @@ class ActionAliasExecutionController(rest.RestController):
 
         if not action_alias_db:
             msg = 'Unable to identify action alias with name "%s".' % (action_alias_name)
-            pecan.abort(http_client.NOT_FOUND, msg)
+            abort(http_client.NOT_FOUND, msg)
             return
 
         if not action_alias_db.enabled:
             msg = 'Action alias with name "%s" is disabled.' % (action_alias_name)
-            pecan.abort(http_client.BAD_REQUEST, msg)
+            abort(http_client.BAD_REQUEST, msg)
             return
 
-        execution_parameters = self._extract_parameters(action_alias_db=action_alias_db,
-                                                        format_str=format_str,
-                                                        param_stream=command)
+        execution_parameters = extract_parameters_for_action_alias_db(
+            action_alias_db=action_alias_db,
+            format_str=format_str,
+            param_stream=command)
         notify = self._get_notify_field(payload)
 
         context = {
@@ -96,42 +99,36 @@ class ActionAliasExecutionController(rest.RestController):
             }
 
             if action_alias_db.ack:
-                if 'format' in action_alias_db.ack:
+                try:
+                    if 'format' in action_alias_db.ack:
+                        result.update({
+                            'message': render({'alias': action_alias_db.ack['format']}, result)['alias']
+                        })
+                except UndefinedError as e:
                     result.update({
-                        'message': render({'alias': action_alias_db.ack['format']}, result)['alias']
+                        'message': 'Cannot render "format" in field "ack" for alias. ' + e.message
                     })
-                if 'extra' in action_alias_db.ack:
-                    result.update({
-                        'extra': render(action_alias_db.ack['extra'], result)
-                    })
-        else:
-            result = {
-                'execution': "junk",
-                'actionalias': ActionAliasAPI.from_model(action_alias_db),
-                'message': "Sorry, I'm not allowed execute this command in this channel."
-            }
 
+                try:
+                    if 'extra' in action_alias_db.ack:
+                        result.update({
+                            'extra': render(action_alias_db.ack['extra'], result)
+                        })
+                    else:
+                        result = {
+                            'execution': "junk",
+                            'actionalias': ActionAliasAPI.from_model(action_alias_db),
+                            'message': "Sorry, I'm not allowed execute this command in this channel."
+                        }
+                except UndefinedError as e:
+                    result.update({
+                        'extra': 'Cannot render "extra" in field "ack" for alias. ' + e.message
+                    })
         return result
 
     def _tokenize_alias_execution(self, alias_execution):
         tokens = alias_execution.strip().split(' ', 1)
         return (tokens[0], tokens[1] if len(tokens) > 1 else None)
-
-    def _extract_parameters(self, action_alias_db, format_str, param_stream):
-        formats = []
-        for formatstring in action_alias_db.formats:
-            if isinstance(formatstring, dict) and formatstring.get('representation'):
-                formats.extend(formatstring['representation'])
-            else:
-                formats.append(formatstring)
-        if formats and format_str in formats:
-            alias_format = format_str
-        else:
-            alias_format = None
-
-        parser = action_alias_utils.ActionAliasFormatParser(alias_format=alias_format,
-                                                            param_stream=param_stream)
-        return parser.get_extracted_param_value()
 
     def _get_notify_field(self, payload):
         on_complete = NotificationSubSchema()
@@ -153,7 +150,7 @@ class ActionAliasExecutionController(rest.RestController):
         if not action_db:
             raise StackStormDBObjectNotFoundError('Action with ref "%s" not found ' % (action_ref))
 
-        assert_request_user_has_resource_db_permission(request=pecan.request, resource_db=action_db,
+        assert_request_user_has_resource_db_permission(request=request, resource_db=action_db,
             permission_type=PermissionType.ACTION_EXECUTE)
 
         try:
@@ -172,10 +169,10 @@ class ActionAliasExecutionController(rest.RestController):
             return ActionExecutionAPI.from_model(action_execution_db)
         except ValueError as e:
             LOG.exception('Unable to execute action.')
-            pecan.abort(http_client.BAD_REQUEST, str(e))
+            abort(http_client.BAD_REQUEST, str(e))
         except jsonschema.ValidationError as e:
             LOG.exception('Unable to execute action. Parameter validation failed.')
-            pecan.abort(http_client.BAD_REQUEST, str(e))
+            abort(http_client.BAD_REQUEST, str(e))
         except Exception as e:
             LOG.exception('Unable to execute action. Unexpected error encountered.')
-            pecan.abort(http_client.INTERNAL_SERVER_ERROR, str(e))
+            abort(http_client.INTERNAL_SERVER_ERROR, str(e))

@@ -35,6 +35,7 @@ __all__ = [
     'ActionAPI',
     'ActionCreateAPI',
     'LiveActionAPI',
+    'LiveActionCreateAPI',
     'RunnerTypeAPI'
 ]
 
@@ -57,6 +58,9 @@ class RunnerTypeAPI(BaseAPI):
                 "description": "The unique identifier for the action runner.",
                 "type": "string",
                 "default": None
+            },
+            "uid": {
+                "type": "string"
             },
             "name": {
                 "description": "The name of the action runner.",
@@ -112,7 +116,7 @@ class RunnerTypeAPI(BaseAPI):
     def to_model(cls, runner_type):
         name = runner_type.name
         description = runner_type.description
-        enabled = bool(runner_type.enabled)
+        enabled = getattr(runner_type, 'enabled', True)
         runner_module = str(runner_type.runner_module)
         runner_parameters = getattr(runner_type, 'runner_parameters', dict())
         query_module = getattr(runner_type, 'query_module', None)
@@ -242,7 +246,7 @@ class ActionAPI(BaseAPI, APIUIDMixin):
             # to use an empty document.
             notify = NotificationsHelper.to_model({})
 
-        model = cls.model(name=name, description=description, enable=enabled, enabled=enabled,
+        model = cls.model(name=name, description=description, enabled=enabled,
                           entry_point=entry_point, pack=pack, runner_type=runner_type,
                           tags=tags, parameters=parameters, notify=notify,
                           ref=ref)
@@ -374,8 +378,6 @@ class LiveActionAPI(BaseAPI):
 
     @classmethod
     def to_model(cls, live_action):
-        name = getattr(live_action, 'name', None)
-        description = getattr(live_action, 'description', None)
         action = live_action.action
 
         if getattr(live_action, 'start_timestamp', None):
@@ -399,12 +401,24 @@ class LiveActionAPI(BaseAPI):
         else:
             notify = None
 
-        model = cls.model(name=name, description=description, action=action,
+        model = cls.model(action=action,
                           start_timestamp=start_timestamp, end_timestamp=end_timestamp,
                           status=status, parameters=parameters, context=context,
                           callback=callback, result=result, notify=notify)
 
         return model
+
+
+class LiveActionCreateAPI(LiveActionAPI):
+    """
+    API model for action execution create (run action) operations.
+    """
+    schema = copy.deepcopy(LiveActionAPI.schema)
+    schema['properties']['user'] = {
+        'description': 'User context under which action should run (admins only)',
+        'type': 'string',
+        'default': None
+    }
 
 
 class ActionExecutionStateAPI(BaseAPI):

@@ -1,9 +1,183 @@
 Changelog
 =========
 
-in development
+In development
 --------------
 
+* Implement custom jina filter functions ``to_json_string``, ``to_yaml_string``,
+  ``to_human_time_from_seconds`` that can be used in actions and workflows. (improvement)
+* Refactor jinja filter functions into appropriate modules. (improvement)
+* Default chatops message to include time taken to complete an execution. This uses
+  ``to_human_time_from_seconds`` function. (improvement)
+* Fix a bug when jinja templates with filters (for example,
+  ``st2 run core.local cmd='echo {{"1.6.0" | version_bump_minor}}'``) in parameters wasn't rendered
+  correctly when executing actions. (bug-fix)
+* Allow user to cancel multiple executions using a single invocation of ``st2 execution cancel``
+  command by passing multiple ids to the command -
+  ``st2 execution cancel <id 1> <id 2> <id n>`` (improvement)
+* We now execute --register-rules as part of st2ctl reload. PR raised by Vaishali:
+  https://github.com/StackStorm/st2/issues/2861#issuecomment-239275641
+* Bump default timeout for ``packs.load`` command from ``60`` to ``100`` seconds. (improvement)
+* Change Python runner action and sensor Python module loading so the module is still loaded even if
+  the module name clashes with another module which is already in ``PYTHONPATH``
+  (improvement)
+* Fix validation of the action parameter ``type`` attribute provided in the YAML metadata.
+  Previously we allowed any string value, now only valid types (object, string, number,
+  integer, array, null) are allowed. (bug fix)
+* Upgrade pip and virtualenv libraries used by StackStorm pack virtual environments to the latest
+  versions (8.1.2 and 15.0.3).
+* Allow user to list and view rules using the API even if a rule in the database references a
+  non-existent trigger. This shouldn't happen during normal usage of StackStorm, but it makes it
+  easier for the user to clean up in case database ends up in a inconsistent state. (improvement)
+* Update ``packs.uninstall`` command to print a warning message if any rules in the system
+  reference a trigger from a pack which is being uninstalled. (improvement)
+* Fix disabling and enabling of a sensor through an API and CLI. (bug-fix)
+* Fix HTTP runner so it works correctly when body is provided with newer versions of requests
+  library (>= 2.11.0). (bug-fix) #2880
+
+  Contribution by Shu Sugimoto.
+
+1.6.0 - August 8, 2016
+----------------------
+
+* Upgrade to pymongo 3.2.2 and mongoengine 0.10.6 so StackStorm now also supports and works with
+  MongoDB 3.x. (improvement)
+* Make sure policies which are disabled are not applied. (bug fix)
+  Reported by Brian Martin.
+* Allow user to specify an action which is performed on an execution (``delay``, ``cancel``) when a
+  concurrency policy is used and a defined threshold is reached. For backward compatibility,
+  ``delay`` is a default behavior, but now user can also specify ``cancel`` and an execution will
+  be canceled instead of delayed when a threshold is reached.
+* Update action runner to use two internal green thread pools - one for regular (non-workflow) and
+  one for workflow actions. Both pool sizes are user-configurable. This should help increase the
+  throughput of a single action runner when the system is not over-utilized. It can also help
+  prevent deadlocks which may occur when using delay policies with action-chain workflows.
+  (improvement)
+* Update CLI commands to make sure that all of them support ``--api-key`` option. (bug-fix)
+* Add support for sorting execution list results, allowing access to oldest items. (improvement)
+* Allow administrator to configure maximum limit which can be specified using ``?limit``
+  query parameters when making API calls to get all / list endpoints. For backward compatibility
+  and safety reasons, the default value still is ``100``. (improvement)
+* Update ``st2-register-content`` script to exit with non-zero on failure (e.g. invalid resource
+  metadata, etc.) by default. For backward compatibility reasons, ``--register-fail-on-failure``
+  flag was left there, but it now doesn't do anything since this is the default behavior. For ease
+  of migrations, users can revert to the old behavior by using new
+  ``--register-no-fail-on-failure`` flag. (improvement)
+* Allow Python runner actions to return execution status (success, failure) by returning a tuple
+  from the ``run()`` method. First item in the tuple is a flag indicating success (``True`` /
+  ``False``) and the second one is the result. Previously, user could only cause action to fail by
+  throwing an exception or exiting which didn't allow for a result to be returned. With this new
+  approach, user can now also return an optional result with a failure. (new feature)
+* Include a chatops alias sample in ``examples`` pack that shows how to use ``format`` option to
+  display chatops messages in custom formatted way. (improvement)
+* Fix ``Internal Server Error`` when an undefined jinja variable is used in action alias ack field.
+  We now send a http status code ``201`` but also explicitly say we couldn't render the ``ack``
+  field. The ``ack`` is anyways a nice-to-have message which is not critical. Previously, we still
+  kicked off the execution but sent out ``Internal Server Error`` which might confuse the user
+  whether execution was kicked off or not. (bug-fix)
+* Include testing for chatops ``format_execution_result`` python action. The tests cover various
+  action types. (improvement)
+* Include a field ``elapsed_seconds`` in execution API response for GET calls. The clients using
+  the API can now use ``elapsed_seconds`` without having to repeat computation. (improvement)
+* Update ``st2-register-content`` script so it validates new style configs in
+  ``/opt/stackstorm/configs/`` directory when using ``--register-configs`` flag if a pack contains
+  a config schema (``config.schema.yaml``). (improvement)
+* Implement custom YAQL function ``st2kv`` in Mistral to get key-value pair from StackStorm's
+  datastore. (new-feature)
+
+1.5.1 - July 13, 2016
+---------------------
+
+* Fix trigger registration when using st2-register-content script with ``--register-triggers``
+  flag. (bug-fix)
+* Fix an issue with CronTimer sometimes not firing due to TriggerInstance creation failure.
+  (bug-fix)
+  Reported by  Cody A. Ray
+* Add support for default values when a new pack configuration is used. Now if a default value
+  is specified for a required config item in the config schema and a value for that item is not
+  provided in the config, default value from config schema is used. (improvement)
+* Allow user to prevent execution parameter merging when re-running an execution by passing
+  ``?no_merge=true`` query parameter to the execution re-run API endpoint. (improvement)
+* Add support for posixGroup to the enterprise LDAP auth backend. (improvement, bug-fix)
+
+1.5.0 - June 24, 2016
+---------------------
+
+* SSL support for mongodb connections. (improvement)
+* TriggerInstances now have statuses to help track if a TriggerInstance has been processed,
+  is being processed or failed to process. This bring out some visibility into parts of the
+  TriggerInstance processing pipeline and can help identify missed events. (new-feature)
+* Allow user to enable service debug mode by setting ``system.debug`` config file option to
+  ``True``.
+  Note: This is an alternative to the existing ``--debug`` CLI flag which comes handy when running
+  API services under gunicorn. (improvement)
+* Fix for `data` is dropped if `message` is not present in notification. (bug-fix)
+* Remove now deprecated Fabric based remote runner and corresponding
+  ``ssh_runner.use_paramiko_ssh_runner`` config option. (cleanup)
+* Fix support for password protected private key files in the remote runner. (bug-fix)
+* Allow user to provide a path to the private SSH key file for the remote runner ``private_key``
+  parameter. Previously only raw key material was supported. (improvement)
+* Add new API endpoint and corresponding CLI commands (``st2 runner disable <name>``,
+  ``st2 runner enable <name>``) which allows administrator to disable (and re-enable) a runner.
+  (new feature)
+* Add RBAC support for runner types API endpoints. (improvement)
+* Allow ``register-setup-virtualenvs`` flag to be used in combination with ``register-all`` in the
+  ``st2-register-content`` script.
+* Add ``get_fixture_content`` method to all the base pack resource test classes. This method
+  enforces fixture files location and allows user to load raw fixture content from a file on disk.
+  (new feature)
+  future, pack configs will be validated against the schema (if available). (new feature)
+* Add data model and API changes for supporting user scoped variables. (new-feature, experimental)
+* Add missing `pytz` dependency to ``st2client`` requirements file. (bug-fix)
+* Fix datastore access on Python runner actions (set ``ST2_AUTH_TOKEN`` and ``ST2_API_URL`` env
+  variables in Python runner actions to match sensors). (bug-fix)
+* Remove support for JSON format for resource metadata files. YAML was introduced and support for
+  JSON has been deprecated in StackStorm v0.6. Now the only supported metadata file format is YAML.
+* Add ``-y`` / ``--yaml`` flag to the CLI ``list`` and ``get`` commands. If this flag is provided,
+  command response will be formatted as YAML. (new feature)
+* Alias names are now correctly scoped to a pack. This means the same name for alias can be used
+  across different packs. (bug-fix)
+* Ability to migrate api keys to new installs. (new feature)
+* Introduce a new concept of pack config schemas. Each pack can now contain a
+  ``config.schema.yaml`` file. This file can contain an optional schema for the pack config. In the
+* Introduce support for pack configs which are located outside of the pack directory in
+  ``/opt/stackstorm/configs/<pack name>.yaml`` files. Those files are similar to the existing pack
+  configs, but in addition to the static values they can also contain dynamic values. Dynamic value
+  is a value which contains a Jinja expression which is resolved to the datastore item during
+  run-time. (new feature)
+* Fix a regression in filtering rules by pack with CLI. (bug-fix)
+* Make sure `st2-submit-debug-info` cleans up after itself and deletes a temporary directory it
+  creates. (improvement) #2714
+  [Kale Blankenship]
+* Fix string parameter casting - leave actual ``None`` value as-is and don't try to cast it to a
+  string which would fail. (bug-fix, improvement)
+* Allow administrator user who's context will be used when running an action or re-running an
+  action execution. (new feature)
+* Add a work-around for trigger creation which would case rule creation for CronTrigger to fail
+  under some circumstances. (workaround, bug-fix)
+* Store action execution state transitions (event log) in the ``log`` attribute on the
+  ActionExecution object. (new feature)
+* Make sure ``-a all`` / ``--attr=all`` flag works for ``st2 execution list`` command (bug-fix)
+* Lazily establish SFTP connection inside the remote runner when and if SFTP connection is needed.
+  This way, remote runner should now also work under cygwin on Windows if SFTP related
+  functionality (file upload, directory upload, etc.) is not used. (improvement)
+  Reported by  Cody A. Ray
+* API and CLI allow rules to be filtered by their enable state. (improvement)
+* Fix SSH bastion host support by ensuring the bastion parameter is passed to the paramiko ssh
+  client. (bug-fix) #2543 [Adam Mielke]
+* Send out a clear error message when SSH private key is passphrase protected but user fails to
+  supply passphrase with private_key when running a remote SSH action. (improvement)
+* Admins will now be able pass ``--show-secrets`` when listing api keys to get the ``key_hash``
+  un-masked on the CLI. (new-feature)
+* Add ``--register-triggers`` flag to the ``st2-register-content`` script and ``st2ctl``.
+  When this flag is provided, all triggers contained within a pack triggers directory are
+  registered, consistent with the behavior of sensors, actions, etc. This feature allows users
+  to register trigger types outside the scope of the sensors. (new-feature) [Cody A. Ray]
+
+1.4.0 - April 18, 2016
+----------------------
+
+* Passphrase support for the SSH runner. (improvement)
 * Improvements to ChatOps deployments of packs via ``pack deploy`` [Jon Middleton]
 * Add ``extra`` field to the ActionAlias schema for adapter-specific parameters. (improvement)
 * Dev environment by default now uses gunicorn to spin API and AUTH processes. (improvement)
@@ -55,8 +229,8 @@ in development
   specified, all the timestamps displayed by the CLI will be shown in the configured timezone
   instead of a default UTC display. (new feature)
 * Add ``attachments`` parameter to the ``core.sendmail`` action. (improvement) [Cody A. Ray]
-* Add ``--register-setup-virtualenvs`` flag to the ``register-content`` script. When this flag is
-  provided, Python virtual environments are created for all the registered packs.
+* Add ``--register-setup-virtualenvs`` flag to the ``register-content`` script and ``st2ctl``.
+  When this flag is provided, Python virtual environments are created for all the registered packs.
   This option is to be used with distributed setup where action runner services run on multiple
   hosts to ensure virtual environments exist on all those hosts. (new-feature)
 * Update ``core.st2.CronTimer`` so it supports more of the cron-like expressions (``a-b``, ``*/a``,
@@ -79,6 +253,27 @@ in development
   ``0`` are handled correctly. (bug-fix)
 
   Reported by Igor Cherkaev.
+* Add ``-v`` flag (verbose mode) to the ``st2-run-pack-tests`` script. (improvement)
+* The list of required and optional configuration arguments for the LDAP auth backend has changed.
+  The LDAP auth backend supports other login name such as sAMAccountName. This requires a separate
+  service account for the LDAP backend to query for the DN related to the login name for bind to
+  validate the user password. Also, users must be in one or more groups specified in group_dns to
+  be granted access.
+* Mistral has deprecated the use of task name (i.e. ``$.task1``) to reference task result. It is
+  replaced with a ``task`` function that returns attributes of the task such as id, state, result,
+  and additional information (i.e. ``task(task1).result``).
+* Add support for additional SSH key exchange algorithms to the remote runner via upgrade to
+  paramiko 1.16.0. (new feature)
+* Add initial code framework for writing unit tests for action aliases. For the usage, please refer
+  to the "Pack Testing" documentation section. (new feature)
+* For consistency rename ``deploy_pack`` alias to ``pack_deploy``.
+* Fix alias executions API endpoint and make sure an exception is thrown if the user provided
+  command string doesn't match the provided format string. Previously, a non-match was silently
+  ignored. (bug fix)
+* Add custom ``use_none`` Jinja template filter which can be used inside rules when invoking an
+  action. This filter ensures that ``None`` values are correctly serialized and is to be used when
+  TriggerInstance payload value can be ``None`` and ``None`` is also a valid value for a particular
+  action parameter. (improvement, workaround)
 
 1.3.2 - February 12, 2016
 -------------------------

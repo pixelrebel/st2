@@ -58,6 +58,7 @@ class TriggerTypeDB(stormbase.StormBaseDB,
     def __init__(self, *args, **values):
         super(TriggerTypeDB, self).__init__(*args, **values)
         self.ref = self.get_reference().ref
+        # pylint: disable=no-member
         self.uid = self.get_uid()
 
 
@@ -87,6 +88,7 @@ class TriggerDB(stormbase.StormBaseDB, stormbase.ContentPackResourceMixin,
 
     def get_uid(self):
         # Note: Trigger is uniquely identified using name + pack + parameters attributes
+        # pylint: disable=no-member
         uid = super(TriggerDB, self).get_uid()
 
         parameters = getattr(self, 'parameters', {})
@@ -107,14 +109,19 @@ class TriggerInstanceDB(stormbase.StormFoundationDB):
     trigger = me.StringField()
     payload = stormbase.EscapedDictField()
     occurrence_time = me.DateTimeField()
+    status = me.StringField(
+        required=True,
+        help_text='Processing status of TriggerInstance.')
 
     meta = {
         'indexes': [
             {'fields': ['occurrence_time']},
             {'fields': ['trigger']},
-            {'fields': ['-occurrence_time', 'trigger']}
+            {'fields': ['-occurrence_time', 'trigger']},
+            {'fields': ['status']}
         ]
     }
+
 
 # specialized access objects
 triggertype_access = MongoDBAccess(TriggerTypeDB)

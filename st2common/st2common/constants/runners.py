@@ -18,10 +18,12 @@ from oslo_config import cfg
 __all__ = [
     'LOCAL_RUNNER_DEFAULT_ACTION_TIMEOUT',
 
-    'FABRIC_RUNNER_DEFAULT_ACTION_TIMEOUT',
-    'FABRIC_RUNNER_DEFAULT_REMOTE_DIR',
+    'REMOTE_RUNNER_DEFAULT_ACTION_TIMEOUT',
+    'REMOTE_RUNNER_DEFAULT_REMOTE_DIR',
+    'REMOTE_RUNNER_PRIVATE_KEY_HEADER',
 
     'PYTHON_RUNNER_DEFAULT_ACTION_TIMEOUT',
+    'PYTHON_RUNNER_INVALID_ACTION_STATUS_EXIT_CODE',
 
     'WINDOWS_RUNNER_DEFAULT_ACTION_TIMEOUT',
 
@@ -32,17 +34,23 @@ __all__ = [
 # Local runner
 LOCAL_RUNNER_DEFAULT_ACTION_TIMEOUT = 60
 
-# Remote (fabric runner)
-FABRIC_RUNNER_DEFAULT_ACTION_TIMEOUT = 60
+# Remote runner
+REMOTE_RUNNER_DEFAULT_ACTION_TIMEOUT = 60
 
 try:
-    FABRIC_RUNNER_DEFAULT_REMOTE_DIR = cfg.CONF.ssh_runner.remote_dir
+    REMOTE_RUNNER_DEFAULT_REMOTE_DIR = cfg.CONF.ssh_runner.remote_dir
 except:
-    FABRIC_RUNNER_DEFAULT_REMOTE_DIR = '/tmp'
+    REMOTE_RUNNER_DEFAULT_REMOTE_DIR = '/tmp'
+
+REMOTE_RUNNER_PRIVATE_KEY_HEADER = 'PRIVATE KEY-----'.lower()
 
 # Python runner
 # Default timeout (in seconds) for actions executed by Python runner
 PYTHON_RUNNER_DEFAULT_ACTION_TIMEOUT = 10 * 60
+
+# Exit code with which the Python runner wrapper script exists if the Python
+# action returns invalid status from the run() method
+PYTHON_RUNNER_INVALID_ACTION_STATUS_EXIT_CODE = 220
 
 # Windows runner
 WINDOWS_RUNNER_DEFAULT_ACTION_TIMEOUT = 10 * 60

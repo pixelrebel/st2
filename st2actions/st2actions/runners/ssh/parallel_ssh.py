@@ -36,7 +36,8 @@ class ParallelSSHClient(object):
     CONNECT_ERROR = 'Cannot connect to host.'
 
     def __init__(self, hosts, user=None, password=None, pkey_file=None, pkey_material=None, port=22,
-                 bastion_host=None, concurrency=10, raise_on_any_error=False, connect=True):
+                 bastion_host=None, concurrency=10, raise_on_any_error=False, connect=True,
+                 passphrase=None):
         self._ssh_user = user
         self._ssh_key_file = pkey_file
         self._ssh_key_material = pkey_material
@@ -45,6 +46,7 @@ class ParallelSSHClient(object):
         self._successful_connects = 0
         self._ssh_port = port
         self._bastion_host = bastion_host
+        self._passphrase = passphrase
 
         if not hosts:
             raise Exception('Need an non-empty list of hosts to talk to.')
@@ -231,8 +233,10 @@ class ParallelSSHClient(object):
 
         client = ParamikoSSHClient(hostname, username=self._ssh_user,
                                    password=self._ssh_password,
-                                   key=self._ssh_key_file,
+                                   bastion_host=self._bastion_host,
+                                   key_files=self._ssh_key_file,
                                    key_material=self._ssh_key_material,
+                                   passphrase=self._passphrase,
                                    port=port)
         try:
             client.connect()
@@ -241,7 +245,6 @@ class ParallelSSHClient(object):
             LOG.exception(error)
             if raise_on_any_error:
                 raise
-            error = ' '.join([self.CONNECT_ERROR, str(ex)])
             error_dict = self._generate_error_result(exc=ex, message=error)
             self._bad_hosts[hostname] = error_dict
             results[hostname] = error_dict

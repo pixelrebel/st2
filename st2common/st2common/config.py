@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import os
+import socket
 import sys
 
 from oslo_config import cfg
@@ -67,6 +68,7 @@ def register_opts(ignore_errors=False):
     do_register_opts(schema_opts, 'schema', ignore_errors)
 
     system_opts = [
+        cfg.BoolOpt('debug', help='Enable debug mode.', default=False),
         cfg.StrOpt('base_path', default='/opt/stackstorm',
                    help='Base path to all st2 artifacts.')
     ]
@@ -81,6 +83,14 @@ def register_opts(ignore_errors=False):
     ]
     do_register_opts(content_opts, 'content', ignore_errors)
 
+    webui_opts = [
+        cfg.StrOpt('webui_base_url', default='https://%s' % socket.getfqdn(),
+                   help='Base https URL to access st2 Web UI. This is used to construct' +
+                        'history URLs that are sent out when chatops is used to kick off ' +
+                        'executions.')
+    ]
+    do_register_opts(webui_opts, 'webui', ignore_errors)
+
     db_opts = [
         cfg.StrOpt('host', default='0.0.0.0', help='host of db server'),
         cfg.IntOpt('port', default=27017, help='port of db server'),
@@ -92,7 +102,24 @@ def register_opts(ignore_errors=False):
         cfg.IntOpt('connection_retry_backoff_max_s', help='Connection retry backoff max (seconds).',
                    default=10),
         cfg.IntOpt('connection_retry_backoff_mul', help='Backoff multiplier (seconds).',
-                   default=1)
+                   default=1),
+        cfg.BoolOpt('ssl', help='Create the connection to mongodb using SSL', default=False),
+        cfg.StrOpt('ssl_keyfile',
+                   help='Private keyfile used to identify the local connection against MongoDB.',
+                   default=None),
+        cfg.StrOpt('ssl_certfile', help='Certificate file used to identify the localconnection',
+                   default=None),
+        cfg.StrOpt('ssl_cert_reqs', choices='none, optional, required',
+                   help='Specifies whether a certificate is required from the other side of the ' +
+                        'connection, and whether it will be validated if provided',
+                   default=None),
+        cfg.StrOpt('ssl_ca_certs',
+                   help='ca_certs file contains a set of concatenated CA certificates, which are' +
+                        ' used to validate certificates passed from MongoDB.',
+                   default=None),
+        cfg.BoolOpt('ssl_match_hostname',
+                    help='If True and `ssl_cert_reqs` is not None, enables hostname verification',
+                    default=True)
     ]
     do_register_opts(db_opts, 'database', ignore_errors)
 
@@ -138,6 +165,17 @@ def register_opts(ignore_errors=False):
                     help='True to mask secrets in the API responses')
     ]
     do_register_opts(api_opts, 'api', ignore_errors)
+
+    # Key Value store options
+    keyvalue_opts = [
+        cfg.BoolOpt('enable_encryption', default=True,
+                    help='Allow encryption of values in key value stored qualified as "secret".'),
+        cfg.StrOpt('encryption_key_path', default='',
+                   help='Location of the symmetric encryption key for encrypting values in ' +
+                        'kvstore. This key should be in JSON and should\'ve been ' +
+                        'generated using keyczar.')
+    ]
+    do_register_opts(keyvalue_opts, group='keyvalue')
 
     # Common auth options
     auth_opts = [
