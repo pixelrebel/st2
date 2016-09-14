@@ -87,7 +87,7 @@ class ActionAliasExecutionController(rest.RestController):
             'user': get_requester(),
             'source_channel': payload.source_channel
         }
-        if context['source_channel'].split('@')[0] in action_alias_db.channels:
+        if not action_alias_db.channels or context['source_channel'].split('@')[0] in action_alias_db.channels:
             execution = self._schedule_execution(action_alias_db=action_alias_db,
                                                  params=execution_parameters,
                                                  notify=notify,
@@ -114,16 +114,17 @@ class ActionAliasExecutionController(rest.RestController):
                         result.update({
                             'extra': render(action_alias_db.ack['extra'], result)
                         })
-                    else:
-                        result = {
-                            'execution': "junk",
-                            'actionalias': ActionAliasAPI.from_model(action_alias_db),
-                            'message': "Sorry, I'm not allowed execute this command in this channel."
-                        }
                 except UndefinedError as e:
                     result.update({
                         'extra': 'Cannot render "extra" in field "ack" for alias. ' + e.message
                     })
+        else:
+            result = {
+                'execution': "junk",
+                'actionalias': ActionAliasAPI.from_model(action_alias_db),
+                'message': "Sorry, I'm not allowed execute this command in this channel."
+            }
+
         return result
 
     def _tokenize_alias_execution(self, alias_execution):
